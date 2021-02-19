@@ -1,0 +1,524 @@
+<html><head>
+  
+<style>
+	.note_alert {
+		font-weight: bold;
+		color: red;
+    }
+	.note {
+	}
+	.A {
+		font-weight: bold;
+	}
+	.B {
+		font-weight: normal;
+	}
+</style>
+</head>
+<body onLoad="registerOnChange(); renderAll();">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/wavedrom/2.6.8/skins/narrow.js" type="text/javascript"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/wavedrom/2.6.8/wavedrom.min.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+
+function generateWaveform(suh_case,ckt_case) {
+  var idev = '';
+  var tclksel = '';
+  var maxsel  = '';
+  var device_dat_out = '';
+  var device_dat_in  = '';
+  var tco_tail = '';
+  var data_out_phase = 0;
+  if (ckt_case == 'skew') {
+    idev = 'slave';
+    device_dat_out = 'Master';
+    device_dat_in  = 'Slave';
+    tco_tail = 'F';
+    if (suh_case == 'su') {
+      tclksel = 'min';
+      maxsel  = 'max';
+    } else {
+      tclksel = 'max';
+      maxsel  = 'min';
+    }
+  } else {
+    idev = 'master';
+    device_dat_out = 'Slave';
+    device_dat_in  = 'Master';
+    tco_tail = 'G';
+    if (suh_case == 'su') {
+      tclksel = 'max';
+      maxsel  = 'max';
+    } else {
+      tclksel = 'min';
+      maxsel  = 'min';
+    }
+  }
+  var t_clk = parseFloat(document.getElementById(idev+"_t_clk_"+tclksel+"_input").value);
+  var t_dat = parseFloat(document.getElementById(idev+"_t_dat_"+maxsel+"_input").value);
+  var t_co  = parseFloat(document.getElementById(idev+"_t_co_"+maxsel+"_input").value);
+  var t_req = parseFloat(document.getElementById(idev+"_t_"+suh_case+"_input").value);
+  var launch_rising = document.getElementById(idev+'_launch_rising_input').checked;
+  var latch_rising = document.getElementById(idev+'_latch_rising_input').checked;
+  
+  var t_p = parseFloat(document.getElementById("t_p_input").value);
+  var per_tick = parseFloat(document.getElementById("per_tick_input").value);
+  var tick_offset = parseFloat(document.getElementById("tick_offset_input").value);
+  var arrow = document.getElementById("arrow_input").value;
+  
+  // calculation:
+  var margin = 0;
+  var actual_arrow = '';
+  var t_clk_arrow = '';
+  var clk_string = '';
+  var clk_rel = 0;
+  var ckt_time = 0;
+  
+  if (launch_rising) {
+    clk_string = '01010';
+  } else {  
+    clk_string = '10101';
+  }
+  
+  if (launch_rising != latch_rising) {
+    // TODO account for clock duty cycle
+    clk_rel = t_p/2;
+    if (ckt_case == 'skew') {
+      actual_arrow = 'H';
+    } else {
+      actual_arrow = 'E';
+    }
+  } else {
+    if (suh_case == 'su') {
+      clk_rel = t_p;
+    } else {
+      clk_rel = 0;
+    }
+    if (ckt_case == 'skew') {
+      actual_arrow = 'B';
+    } else {
+      actual_arrow = 'A';
+    }
+  }
+  
+  
+  if (ckt_case == 'skew') {
+    ckt_time = -t_clk+t_co+t_dat;
+    data_out_phase = -t_co/per_tick;
+    t_clk_arrow = 'A'+arrow+'B '+t_clk;
+  } else {
+    ckt_time = t_clk+t_co+t_dat;
+    data_out_phase = -(t_co+t_clk)/per_tick;
+    t_clk_arrow = 'F'+arrow+'G '+t_clk;
+  }
+  
+  if (suh_case == 'su') {
+    margin = clk_rel-ckt_time-t_req;
+    actual_arrow = 'D'+arrow+actual_arrow+' setup = '+(margin+t_req);
+  } else {
+    margin = clk_rel+ckt_time-t_req;
+    actual_arrow = actual_arrow+arrow+'J hold = '+(margin+t_req);
+  }
+     
+  var wdjson = { signal: [
+    { name: 'Master Clk Out', wave: clk_string,  node: '.FEA', period: (t_p/2)/per_tick, phase: tick_offset+(t_p/2)/per_tick },
+    { name: 'Slave Clk In', wave: clk_string,  node: '.GHB', period: (t_p/2)/per_tick, phase: -1*t_clk/per_tick+tick_offset+(t_p/2)/per_tick},
+    { name: device_dat_out+' Data Out', wave: '===',  node: '.C', period: (t_p)/per_tick, phase: data_out_phase+tick_offset+(t_p)/per_tick},
+    { name: device_dat_in+' Data In', wave: '===',  node: '.DJ', period: (t_p)/per_tick, phase: data_out_phase-t_dat/per_tick+tick_offset+(t_p)/per_tick },
+    ],
+    edge: [
+      t_clk_arrow, tco_tail+arrow+'C '+t_co, 'C'+arrow+'D '+t_dat, 'F<->A '+t_p, actual_arrow 
+    ],
+   config: { skin: 'narrow' }
+  };
+  
+  document.getElementById(idev+"_wavedrom_render_"+suh_case).innerHTML = '<script type="WaveDrom">' + JSON.stringify(wdjson) + '<\/script>';
+  //apply zoom/scale:
+  document.getElementById(idev+"_wavedrom_render_"+suh_case).style.transform = 'scale(' + parseFloat(document.getElementById("wd_zoom_input").value) + ')';
+  document.getElementById(idev+"_wavedrom_render_"+suh_case).style.transformOrigin = '0% 0% 0px';
+  //TODO make the divs shift down instead of scroll bars--not sure how
+  document.getElementById(idev+"_wave_"+suh_case+"_div").style.overflow = 'auto';
+  
+  //write notes for the design constraints:
+  if (suh_case == 'su') {
+    // solve the margin equation for t_req, with 0 margin
+    document.getElementById(idev+"_t_"+suh_case+"_note").innerHTML = (margin+t_req)+' maximum';
+    // solve the margin equation for t_co, with 0 margin
+    document.getElementById(idev+"_t_co_"+maxsel+"_note").innerHTML = (margin+t_co)+' maximum';
+    if (ckt_case == 'skew') {
+      // solve the margin equation for t_dat-t_clk, with 0 margin
+      document.getElementById(idev+"_t_clk_"+tclksel+"_note").innerHTML = (margin+t_dat-t_clk)+' maximum skew (data minus clk)'; 
+      document.getElementById(idev+"_t_dat_"+maxsel +"_note").innerHTML = (margin+t_dat-t_clk)+' maximum skew (data minus clk)'; 
+    } else {
+      // solve the margin equation for t_clk+t_dat, with 0 margin:
+      document.getElementById(idev+"_t_clk_"+tclksel+"_note").innerHTML = (margin+t_dat+t_clk)+' maximum clk+data delay'; 
+      document.getElementById(idev+"_t_dat_"+maxsel +"_note").innerHTML = (margin+t_dat+t_clk)+' maximum clk+data delay'; 
+    }
+  } else {
+    document.getElementById(idev+"_t_"+suh_case+"_note").innerHTML = (margin+t_req)+' maximum';
+    document.getElementById(idev+"_t_co_"+maxsel+"_note").innerHTML = (t_co-margin)+' minimum';
+    if (ckt_case == 'skew') {
+      // solve the margin equation for t_dat-t_clk, with 0 margin
+      document.getElementById(idev+"_t_clk_"+tclksel+"_note").innerHTML = (t_dat-t_clk-margin)+' minimum skew (data minus clk)';  
+      document.getElementById(idev+"_t_dat_"+maxsel +"_note").innerHTML = (t_dat-t_clk-margin)+' minimum skew (data minus clk)';  
+    } else {
+      // solve the margin equation for t_clk+t_dat, with 0 margin:
+      document.getElementById(idev+"_t_clk_"+tclksel+"_note").innerHTML = (t_dat+t_clk-margin)+' minimum clk+data delay'; 
+      document.getElementById(idev+"_t_dat_"+maxsel +"_note").innerHTML = (t_dat+t_clk-margin)+' minimum clk+data delay'; 
+    }
+  }
+
+  //report the margin:
+  document.getElementById(idev+"_"+suh_case+"_margin").innerHTML = 'Margin = '+margin;
+  if (margin < 0) {
+    document.getElementById(idev+"_"+suh_case+"_margin").className = "note_alert";
+  } else {
+    document.getElementById(idev+"_"+suh_case+"_margin").className = "note";
+  }
+}
+
+function updateDisplayedInputs() {
+  var slave_disp = 'none';
+  var master_disp = 'none';
+  if (document.getElementById('dat_device_master').checked) {
+    slave_disp = 'block';
+    master_disp = 'none';
+    document.getElementById('slave_t_dat_max_input').disabled = false;
+    document.getElementById('slave_t_dat_min_input').disabled = false;
+    document.getElementById('slave_t_clk_max_input').disabled = false;
+    document.getElementById('slave_t_clk_min_input').disabled = false;
+  } else if (document.getElementById('dat_device_slave').checked) {
+    slave_disp = 'none';
+    master_disp = 'block';
+    document.getElementById('slave_t_dat_max_input').disabled = false;
+    document.getElementById('slave_t_dat_min_input').disabled = false;
+    document.getElementById('slave_t_clk_max_input').disabled = false;
+    document.getElementById('slave_t_clk_min_input').disabled = false;
+  } else {
+    slave_disp = 'block';
+    master_disp = 'block';
+    document.getElementById('slave_t_clk_max_input').disabled = true;
+    document.getElementById('slave_t_clk_min_input').disabled = true;
+    // auto fill the previously undisplayed input with the displayed one:
+    if (document.getElementById('master_setup_div').style.display == 'none') {
+      document.getElementById('master_t_clk_max_input').value = document.getElementById('slave_t_clk_max_input').value;
+    } else {
+      document.getElementById('slave_t_clk_max_input').value = document.getElementById('master_t_clk_max_input').value;
+    }
+    if (document.getElementById('master_hold_div').style.display == 'none') {
+      document.getElementById('master_t_clk_min_input').value = document.getElementById('slave_t_clk_min_input').value;
+    } else {
+      document.getElementById('slave_t_clk_min_input').value = document.getElementById('master_t_clk_min_input').value;
+    }
+    if (document.getElementById('dat_device_both').checked) {
+      document.getElementById('slave_t_dat_max_input').disabled = false;
+      document.getElementById('slave_t_dat_min_input').disabled = false;
+    } else {
+      document.getElementById('slave_t_dat_max_input').disabled = true;
+      document.getElementById('slave_t_dat_min_input').disabled = true;
+      if (document.getElementById('master_setup_div').style.display == 'none') {
+        document.getElementById('master_t_dat_max_input').value = document.getElementById('slave_t_dat_max_input').value;
+      } else {
+        document.getElementById('slave_t_dat_max_input').value = document.getElementById('master_t_dat_max_input').value;
+      }
+      if (document.getElementById('master_hold_div').style.display == 'none') {
+        document.getElementById('master_t_dat_min_input').value = document.getElementById('slave_t_dat_min_input').value;
+      } else {
+        document.getElementById('slave_t_dat_min_input').value = document.getElementById('master_t_dat_min_input').value;
+      }
+    }
+  }
+  document.getElementById('master_setup_div').style.display = master_disp;
+  document.getElementById('master_hold_div').style.display = master_disp;
+  document.getElementById('master_wave_su_div').style.display = master_disp;
+  document.getElementById('master_wave_h_div').style.display = master_disp;
+  document.getElementById('master_launch_div').style.display = master_disp;
+  document.getElementById('master_latch_div').style.display = master_disp;
+  document.getElementById('slave_setup_div').style.display = slave_disp;
+  document.getElementById('slave_hold_div').style.display = slave_disp;
+  document.getElementById('slave_wave_su_div').style.display = slave_disp;
+  document.getElementById('slave_wave_h_div').style.display = slave_disp;
+  document.getElementById('slave_launch_div').style.display = slave_disp;
+  document.getElementById('slave_latch_div').style.display = slave_disp;
+  
+  //Now update displays relative to the design variable:
+  if (document.getElementById('design_var_board').checked) {
+    document.getElementById('master_sdc_div').style.display = 'none';
+    document.getElementById('slave_sdc_div').style.display = 'none';
+    document.getElementById('trace_const_div').style.display = 'block';
+    document.getElementById('master_t_su_note').style.display = 'none';
+    document.getElementById('master_t_clk_max_note').style.display = 'inline';
+    document.getElementById('master_t_dat_max_note').style.display = 'inline';
+    document.getElementById('master_t_co_max_note').style.display = 'none';
+    document.getElementById('master_t_h_note').style.display = 'none';
+    document.getElementById('master_t_clk_min_note').style.display = 'inline';
+    document.getElementById('master_t_dat_min_note').style.display = 'inline';
+    document.getElementById('master_t_co_min_note').style.display = 'none';
+    document.getElementById('slave_t_su_note').style.display = 'none';
+    document.getElementById('slave_t_clk_min_note').style.display = 'inline';
+    document.getElementById('slave_t_dat_max_note').style.display = 'inline';
+    document.getElementById('slave_t_co_max_note').style.display = 'none';
+    document.getElementById('slave_t_h_note').style.display = 'none';
+    document.getElementById('slave_t_clk_max_note').style.display = 'inline';
+    document.getElementById('slave_t_dat_min_note').style.display = 'inline';
+    document.getElementById('slave_t_co_min_note').style.display = 'none';
+  } else if (document.getElementById('design_var_master').checked) {
+    document.getElementById('master_sdc_div').style.display = 'block';
+    document.getElementById('slave_sdc_div').style.display = 'none';
+    document.getElementById('trace_const_div').style.display = 'none';
+    document.getElementById('master_t_su_note').style.display = 'inline';
+    document.getElementById('master_t_clk_max_note').style.display = 'none';
+    document.getElementById('master_t_dat_max_note').style.display = 'none';
+    document.getElementById('master_t_co_max_note').style.display = 'none';
+    document.getElementById('master_t_h_note').style.display = 'inline';
+    document.getElementById('master_t_clk_min_note').style.display = 'none';
+    document.getElementById('master_t_dat_min_note').style.display = 'none';
+    document.getElementById('master_t_co_min_note').style.display = 'none';
+    document.getElementById('slave_t_su_note').style.display = 'none';
+    document.getElementById('slave_t_clk_min_note').style.display = 'none';
+    document.getElementById('slave_t_dat_max_note').style.display = 'none';
+    document.getElementById('slave_t_co_max_note').style.display = 'inline';
+    document.getElementById('slave_t_h_note').style.display = 'none';
+    document.getElementById('slave_t_clk_max_note').style.display = 'none';
+    document.getElementById('slave_t_dat_min_note').style.display = 'none';
+    document.getElementById('slave_t_co_min_note').style.display = 'inline';
+  } else {
+    document.getElementById('master_sdc_div').style.display = 'none';
+    document.getElementById('slave_sdc_div').style.display = 'block';
+    document.getElementById('trace_const_div').style.display = 'none';
+    document.getElementById('master_t_su_note').style.display = 'none';
+    document.getElementById('master_t_clk_max_note').style.display = 'none';
+    document.getElementById('master_t_dat_max_note').style.display = 'none';
+    document.getElementById('master_t_co_max_note').style.display = 'inline';
+    document.getElementById('master_t_h_note').style.display = 'none';
+    document.getElementById('master_t_clk_min_note').style.display = 'none';
+    document.getElementById('master_t_dat_min_note').style.display = 'none';
+    document.getElementById('master_t_co_min_note').style.display = 'inline';
+    document.getElementById('slave_t_su_note').style.display = 'inline';
+    document.getElementById('slave_t_clk_min_note').style.display = 'none';
+    document.getElementById('slave_t_dat_max_note').style.display = 'none';
+    document.getElementById('slave_t_co_max_note').style.display = 'none';
+    document.getElementById('slave_t_h_note').style.display = 'inline';
+    document.getElementById('slave_t_clk_max_note').style.display = 'none';
+    document.getElementById('slave_t_dat_min_note').style.display = 'none';
+    document.getElementById('slave_t_co_min_note').style.display = 'none';
+  }
+}
+
+function generateConstraints() {
+  var master_string = '';
+  var slave_string = '';
+  var common_string = '';
+  
+  master_string = ''+
+'## User must define clocks first, including "ext_clk_at_pin" referenced below.\n'+
+'# Define the parameters:\n';
+  slave_string = master_string;
+
+  if (document.getElementById('dat_device_master').checked == true) {
+    common_string = ''+
+'set clk_pcb_min '+document.getElementById('slave_t_clk_min_input').value+'\n'+
+'set clk_pcb_max '+document.getElementById('slave_t_clk_max_input').value+'\n';
+  } else {
+    common_string = ''+
+'set clk_pcb_min '+document.getElementById('master_t_clk_min_input').value+'\n'+
+'set clk_pcb_max '+document.getElementById('master_t_clk_max_input').value+'\n';
+  }
+  master_string = master_string + common_string;
+  slave_string = slave_string + common_string;
+  
+  if (document.getElementById('dat_device_master').checked == false) {
+    common_string = ''+
+'set miso_pcb_min '+document.getElementById('master_t_dat_min_input').value+'\n'+
+'set miso_pcb_max '+document.getElementById('master_t_dat_max_input').value+'\n';
+
+    master_string = master_string + common_string +
+'set miso_tco_max '+document.getElementById('master_t_co_max_input').value+'\n'+
+'set miso_tco_min '+document.getElementById('master_t_co_min_input').value+'\n';
+
+    slave_string = slave_string + common_string +
+'set miso_su '+document.getElementById('master_t_su_input').value+'\n'+
+'set miso_h  '+document.getElementById('master_t_h_input').value+'\n';
+  }
+
+  if (document.getElementById('dat_device_slave').checked == false) {
+    common_string = ''+
+'set mosi_pcb_min '+document.getElementById('slave_t_dat_min_input').value+'\n'+
+'set mosi_pcb_max '+document.getElementById('slave_t_dat_max_input').value+'\n';
+    
+    master_string = master_string + common_string +
+'set mosi_su '+document.getElementById('slave_t_su_input').value+'\n'+
+'set mosi_h  '+document.getElementById('slave_t_h_input').value+'\n'+
+'# Apply constraint to mosi pin relative to the external clock pin: (See equations 1 and 2 of Altera AN 433)\n'+
+'set_output_delay -clock [get_clocks ext_clk_at_pin] -max [expr $mosi_pcb_max + $mosi_su - $clk_pcb_min] [get_ports mosi] -clock_fall\n'+
+'set_output_delay -clock [get_clocks ext_clk_at_pin] -min [expr $mosi_pcb_min - $mosi_h  - $clk_pcb_max] [get_ports mosi] -clock_fall -add_delay\n';
+
+    slave_string = slave_string + common_string +
+'set mosi_tco_max '+document.getElementById('slave_t_co_max_input').value+'\n'+
+'set mosi_tco_min '+document.getElementById('slave_t_co_min_input').value+'\n'+
+'# Apply constraint to mosi pin relative to the external clock pin: (See equations 23 and 24 of Altera AN 433)\n'+
+'set_input_delay -clock [get_clocks ext_clk_at_pin] -max [expr $mosi_tco_max + $mosi_pcb_max - $clk_pcb_min] [get_ports mosi]\n'+
+'set_input_delay -clock [get_clocks ext_clk_at_pin] -min [expr $mosi_tco_min + $mosi_pcb_min - $clk_pcb_max] [get_ports mosi] -add_delay\n';
+  }
+  
+  if (document.getElementById('dat_device_master').checked == false) {
+    master_string = master_string+
+'# Apply constraint to miso pin relative to the external clock pin: (Not source-synchronous; from equations 23 and 24 of Altera AN 433, reverse the sign and min/max on clk_pcb delay)\n'+
+'set_input_delay -clock [get_clocks ext_clk_at_pin] -max [expr $miso_tco_max + $miso_pcb_max + $clk_pcb_max] [get_ports miso]\n'+
+'set_input_delay -clock [get_clocks ext_clk_at_pin] -min [expr $miso_tco_min + $miso_pcb_min + $clk_pcb_min] [get_ports miso] -add_delay\n';
+
+    slave_string = slave_string+
+'# Apply constraint to miso pin relative to the external clock pin: (Not source-synchronous; from equations 1 and 2 of Altera AN 433, reverse the sign and min/max on clk_pcb delay)\n'+
+'set_output_delay -clock [get_clocks ext_clk_at_pin] -max [expr $miso_pcb_max + $miso_su + $clk_pcb_max] [get_ports miso] -clock_fall\n'+
+'set_output_delay -clock [get_clocks ext_clk_at_pin] -min [expr $miso_pcb_min - $miso_h  + $clk_pcb_min] [get_ports miso] -clock_fall -add_delay\n';
+  }
+  
+  document.getElementById('master_sdc').value = master_string;
+  document.getElementById('slave_sdc').value = slave_string;
+}
+  
+function renderAll() {
+  updateDisplayedInputs();
+  if (document.getElementById('dat_device_master').checked) {
+    // same direction case, concerns skew b/w clk and data.
+    generateWaveform('su','skew');
+    generateWaveform('h','skew');
+  } else if (document.getElementById('dat_device_slave').checked) {
+    // round trip case, concerns sum of clk and data.
+    generateWaveform('su','sum');
+    generateWaveform('h','sum');
+  } else {
+    // combined case
+    generateWaveform('su','skew');
+    generateWaveform('h','skew');
+    generateWaveform('su','sum');
+    generateWaveform('h','sum');
+  }
+  WaveDrom.ProcessAll();
+  generateConstraints();
+  
+  //TODO put fmax in note
+  //TODO print trace length constraints
+  //TODO JSON format for a part: master or slave parameters, auto loads into the calculator.
+  //TODO print page option
+  //TODO url to recover the page with all inputs.
+  //TODO allow for DDR. (simply doubles clock rate, but there are additional sdc constraints)
+  //TODO make SDC use the correct clock edge.
+  //TODO display option to organize input fields by either device or timing scenario
+}
+
+
+function registerOnChange() {
+  var inputs = document.getElementsByTagName('input');
+  for (var i = 0; i < inputs.length; i += 1) {
+    inputs[i].addEventListener("change", renderAll);
+    inputs[i].addEventListener("keyup", renderAll);
+  }
+}
+</script>
+
+<div id="ckt_div" class="A">Circuit Parameters:
+  <div id="clk_device_div" class="B">Clock output device: 
+    <input type=radio name="clk_device_radio" id="clk_device_master" checked> Master
+    <!-- <input type=radio name="clk_device_radio" id="clk_device_slave" disabled> Slave -->
+  </div>
+  <div id="dat_device_div" class="B">Data output device: 
+    <input type=radio name="dat_device_radio" id="dat_device_master" > Master
+    <input type=radio name="dat_device_radio" id="dat_device_slave" checked> Slave
+    <input type=radio name="dat_device_radio" id="dat_device_bidir" > Both, same net
+    <input type=radio name="dat_device_radio" id="dat_device_both" > Both, separate net
+  </div>
+  <div id="design_var_div" class="B">Design variable: 
+    <input type=radio name="design_var_radio" id="design_var_master" checked> Master timing
+    <input type=radio name="design_var_radio" id="design_var_slave"> Slave timing
+    <input type=radio name="design_var_radio" id="design_var_board"> Board delays
+  </div>
+</div>
+<div id="clock_div" class="A">Clock Parameters:
+  <div id="t_p_div" class="B">Clock period <input type=text id="t_p_input" value="80"></div>
+  <div id="slave_launch_div" class="B">Master t<sub>co</sub> edge: 
+    <input type=radio name="slave_launch_edge_radio" id="slave_launch_rising_input" checked> Rising
+    <input type=radio name="slave_launch_edge_radio" id="slave_launch_falling_input"> Falling</div>
+  <div id="master_latch_div" class="B">Master setup/hold edge: 
+    <input type=radio name="master_latch_edge_radio" id="master_latch_rising_input" checked> Rising
+    <input type=radio name="master_latch_edge_radio" id="master_latch_falling_input"> Falling</div>
+  <div id="master_launch_div" class="B">Slave t<sub>co</sub> edge: 
+    <input type=radio name="master_launch_edge_radio" id="master_launch_rising_input" checked> Rising
+    <input type=radio name="master_launch_edge_radio" id="master_launch_falling_input"> Falling</div>
+  <div id="slave_latch_div" class="B">Slave setup/hold edge: 
+    <input type=radio name="slave_latch_edge_radio" id="slave_latch_rising_input" checked> Rising
+    <input type=radio name="slave_latch_edge_radio" id="slave_latch_falling_input"> Falling</div>
+</div>
+<div id="master_setup_div" class="A">Setup Time Parameters, Master Input:
+  <div id="master_t_su_div" class="B">Master input setup minimum <input type=text id="master_t_su_input" value="0"> <span class="note" id="master_t_su_note"></span></div>
+  <div id="master_t_clk_max_div" class="B">Clock board delay max <input type=text id="master_t_clk_max_input" value="16"> <span class="note" id="master_t_clk_max_note"></span></div>
+  <div id="master_t_dat_max_div" class="B">Data board delay max <input type=text id="master_t_dat_max_input" value="16"> <span class="note" id="master_t_dat_max_note"></span></div>
+  <div id="master_t_co_max_div" class="B">Slave output t<sub>co</sub> max <input type=text id="master_t_co_max_input" value="30"> <span class="note" id="master_t_co_max_note"></span></div>
+</div>
+<div id="master_hold_div" class="A">Hold Time Parameters, Master Input:
+  <div id="master_t_h_div" class="B">Master input hold minimum <input type=text id="master_t_h_input" value="0"> <span class="note" id="master_t_h_note"></span></div>
+  <div id="master_t_clk_min_div" class="B">Clock board delay min <input type=text id="master_t_clk_min_input" value="6"> <span class="note" id="master_t_clk_min_note"></span></div>
+  <div id="master_t_dat_min_div" class="B">Data board delay min <input type=text id="master_t_dat_min_input" value="6"> <span class="note" id="master_t_dat_min_note"></span></div>
+  <div id="master_t_co_min_div" class="B">Slave output t<sub>co</sub> min <input type=text id="master_t_co_min_input" value="10"> <span class="note" id="master_t_co_min_note"></span></div>
+</div>
+<div id="slave_setup_div" class="A">Setup Time Parameters, Slave Input:
+  <div id="slave_t_su_div" class="B">Slave input setup minimum <input type=text id="slave_t_su_input" value="0"> <span class="note" id="slave_t_su_note"></span></div>
+  <div id="slave_t_clk_min_div" class="B">Clock board delay min <input type=text id="slave_t_clk_min_input" value="6"> <span class="note" id="slave_t_clk_min_note"></span></div>
+  <div id="slave_t_dat_max_div" class="B">Data board delay max <input type=text id="slave_t_dat_max_input" value="16"> <span class="note" id="slave_t_dat_max_note"></span></div>
+  <div id="slave_t_co_max_div" class="B">Master output t<sub>co</sub> max <input type=text id="slave_t_co_max_input" value="30"> <span class="note" id="slave_t_co_max_note"></span></div>
+</div>
+<div id="slave_hold_div" class="A">Hold Time Parameters, Slave Input:
+  <div id="slave_t_h_div" class="B">Slave input hold minimum <input type=text id="slave_t_h_input" value="0"> <span class="note" id="slave_t_h_note"></span></div>
+  <div id="slave_t_clk_max_div" class="B">Clock board delay max <input type=text id="slave_t_clk_max_input" value="16"> <span class="note" id="slave_t_clk_max_note"></span></div>
+  <div id="slave_t_dat_min_div" class="B">Data board delay min <input type=text id="slave_t_dat_min_input" value="6"> <span class="note" id="slave_t_dat_min_note"></span></div>
+  <div id="slave_t_co_min_div" class="B">Master output t<sub>co</sub> min <input type=text id="slave_t_co_min_input" value="10"> <span class="note" id="slave_t_co_min_note"></span></div>
+</div>
+<div id="plot_div" class="A">Plot Parameters:
+  <div id="per_tick_div" class="B">Units per tick <input type=text id="per_tick_input" value="10"></div>
+  <div id="tick_offset_div" class="B">Tick offset <input type=text id="tick_offset_input" value="-0.8"></div>
+  <div id="arrow_div" class="B">Arrow style <input type=text id="arrow_input" value="->"></div>
+  <div id="wd_zoom_div" class="B">Zoom <input type=text id="wd_zoom_input" value="1.0"></div>
+</div>
+<button onclick="renderAll()">Calculate</button>
+<div class="blank"><br/></div>
+
+<div id="master_wave_su_div">Master Input Setup Case: <span class="note" id="master_su_margin"></span>
+  <div id="master_wavedrom_render_su" style=""></div>
+  <div class="blank"><br/></div>
+</div>
+
+<div id="master_wave_h_div">Master Input Hold Case: <span class="note" id="master_h_margin"></span>
+  <div id="master_wavedrom_render_h"></div>
+  <div class="blank"><br/></div>
+</div>
+
+<div id="slave_wave_su_div">Slave Input Setup Case: <span class="note" id="slave_su_margin"></span>
+  <div id="slave_wavedrom_render_su"></div>
+  <div class="blank"><br/></div>
+</div>
+
+<div id="slave_wave_h_div">Slave Input Hold Case: <span class="note" id="slave_h_margin"></span>
+  <div id="slave_wavedrom_render_h"></div>
+  <div class="blank"><br/></div>
+</div>
+
+
+<div id="master_sdc_div">Master SDC Constraints:
+  <div><textarea id="master_sdc" rows="20" cols="100" disabled style="white-space: pre;">
+  </textarea></div>
+  <div class="blank"><br/></div>
+</div>
+
+<div id="slave_sdc_div">Slave SDC Constraints:
+  <div><textarea id="slave_sdc" rows="20" cols="100" disabled style="white-space: pre;">
+
+  </textarea></div>
+  <div class="blank"><br/></div>
+</div>
+
+<div id="trace_const_div">Board Delay Constraints:
+  <div id="trace_const">User is responsible for converting these time values to length (e.g., 6 inches per 1 ns) as well as evaluating the timing impact of signal integrity</div>
+                       <div class="blank"><br/></div>
+</div>
+</body>
+</html>
