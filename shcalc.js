@@ -98,7 +98,7 @@ function generateWaveform(suh_case,ckt_case) {
     margin = clk_rel+ckt_time-t_req;
     actual_arrow = actual_arrow+arrow+'J hold = '+(margin+t_req);
   }
-     
+  
   var wdjson = { signal: [
     { name: 'Master Clk Out', wave: clk_string,  node: '.FEA', period: (t_p/2)/per_tick, phase: tick_offset+(t_p/2)/per_tick },
     { name: 'Slave Clk In', wave: clk_string,  node: '.GHB', period: (t_p/2)/per_tick, phase: -1*t_clk/per_tick+tick_offset+(t_p/2)/per_tick},
@@ -140,6 +140,25 @@ function generateWaveform(suh_case,ckt_case) {
       // solve the margin equation for t_clk+t_dat, with 0 margin:
       document.getElementById(idev+"_t_clk_"+tclksel+"_note").innerHTML = (t_dat+t_clk-margin)+' minimum clk+data delay'; 
       document.getElementById(idev+"_t_dat_"+maxsel +"_note").innerHTML = (t_dat+t_clk-margin)+' minimum clk+data delay'; 
+    }
+  }
+  //determine fmax by taking up all the margin from t_p.
+  var t_p_min = 0;
+  if (clk_rel != 0) { // if clk_rel is 0 then it doesn't factor in and therefore no minimum in this case.
+    if (launch_rising != latch_rising) {
+      t_p_min = t_p - 2*margin;
+    } else {
+      t_p_min = t_p - margin;
+    }  
+    //since t_p_min is the minimum across all cases, we maintain the highest value in t_p_min_note.
+    //if there's nothing there, this is the first case getting evaluated.
+    tp_min_element = document.getElementById('t_p_min_note');
+    if (tp_min_element.innerHTML == '') {
+      tp_min_element.innerHTML = t_p_min;
+    } else {
+      if (t_p_min > parseFloat(tp_min_element.innerHTML)) {
+        tp_min_element.innerHTML = t_p_min;
+      }
     }
   }
 
@@ -491,6 +510,9 @@ function renderAll() {
   }
   updateTclkValues();
   updateTdatValues();
+  // clear the t_p_min_note since generateWaveform tracks the min value there.
+  tp_min_element = document.getElementById('t_p_min_note');
+  tp_min_element.innerHTML = '';
   if (document.getElementById('dat_device_master').selected) {
     // same direction case, concerns skew b/w clk and data.
     generateWaveform('su','skew');
@@ -506,6 +528,9 @@ function renderAll() {
     generateWaveform('su','sum');
     generateWaveform('h','sum');
   }
+  var t_p_min = tp_min_element.innerHTML;
+  var fmax = 1000.0/parseFloat(t_p_min); // convert to MHz assuming time in ns
+  tp_min_element.innerHTML = t_p_min+' minimum, '+fmax.toFixed(3)+' MHz Fmax';
   WaveDrom.ProcessAll();
   scaleWavedrom();
   generateConstraints();
